@@ -1,4 +1,5 @@
 #include "pch.hpp"
+#include "saved_state.hpp"
 #include "tools/random.hpp"
 #include "tools/time.hpp"
 #include "onVariant/ConsoleMessage.hpp"
@@ -224,10 +225,8 @@ T world::mysql_select(const std::string &column, const std::string &arg)
     mysql_stmt_bind_result(hStmt.pStmt, &result);
 
     hStmt.execute();
-    hStmt.fetch();
-    if constexpr (std::is_same_v<T, std::string>)
-        value.resize(length);
-    else if constexpr (std::is_same_v<T, ::blob>)
+    if (!hStmt.fetch()) return T{};
+    if constexpr (std::is_same_v<T, std::string> || std::is_same_v<T, ::blob> || std::is_same_v<T, std::vector<u_char>>)
         value.resize(length);
 
     return value;
@@ -237,69 +236,9 @@ void world::mysql_select_all()
 {
     this->name = this->mysql_select<std::string>("name");
     this->owner = this->mysql_select<int>("owner");
-    {
-        this->trees.clear();
-        ::blob blob = this->mysql_select<::blob>("blocks");
-        this->blocks.resize(cord(0, 60));
-
-        const int x = this->blocks.size() / 60;
-        int pos{};
-        for (u_short i = 0; ::block &block : this->blocks)
-        {
-            blob.read_i16(block.fg, pos);
-            blob.read_i16(block.bg, pos);
-            blob.read_u8(block.state[0], pos);
-            blob.read_u8(block.state[1], pos);
-            blob.read_u8(block.state[2], pos);
-            blob.read_u8(block.state[3], pos);
-
-            if (block.fg != 0 || block.fg!=2||block.fg!=4||block.fg!=8||block.fg!=14) // @note so we can save time
-            if (char type = get_type(id_to_item(block.fg)); type > '\x00')
-            {
-                const ::pos block_pos{i % x, i / x};
-                if (type == '\x01'/*doors, portal*/)
-                {
-                    ::door &door = this->doors.emplace_back("","","", block_pos);
-
-                    blob.read_string(door.label, pos);
-                    pos++;// @note \0
-                }
-                else if (type == '\x02'/*sign*/)
-                {
-                    ::sign &sign = this->signs.emplace_back("", block_pos);
-
-                    blob.read_string(sign.label, pos);
-                    blob.read_u32(sign.idk, pos);
-                }
-                else if (type == '\x04'/*seed*/)
-                {
-                    ::tree &tree = this->trees.emplace_back(0, 0, block_pos);
-
-                    blob.read_u32(tree.tick, pos);
-                    blob.read_u8(tree.fruit, pos);
-                }
-            }
-            ++i;
-        }
-    } // @note delete blob, i
-    {
-        ::blob blob = this->mysql_select<::blob>("objects"); // @note ::blob is cut to the real length, std::vector<u_char> stays at the full buffer size
-
-        const u_char *u8 = blob.data().data(); // @note i did not have the brain capacity to reinterpret it. t-t (memcpy is safer anyways...)
-        int i{};
-        if (blob.size() >= sizeof(u_int)) memcpy(&this->last_object_uid, u8, sizeof(u_int));
-        i += sizeof(u_int); // @todo real gt has this as 8 bits not just 4.
-
-        objects.resize(blob.size() >= sizeof(u_int) ? (blob.size() - sizeof(u_int)) / 16 : 0); // @note count from the saved data, not the last drop uid
-        for (::object &object : this->objects)
-        {
-            memcpy(&object.id,    u8 + i, sizeof(u_short)); i += sizeof(u_short);
-            memcpy(&object.pos.x, u8 + i, sizeof(float));   i += sizeof(float);
-            memcpy(&object.pos.y, u8 + i, sizeof(float));   i += sizeof(float);
-            memcpy(&object.count, u8 + i, sizeof(u_short)); i += sizeof(u_short);
-            memcpy(&object.uid,   u8 + i, sizeof(u_int));   i += sizeof(u_int);
-        }
-    } // @note delete blob, i
+    saved_state::blocks(*this, this->mysql_select<::blob>("blocks"));
+    saved_state::objects(*this, this->mysql_select<::blob>("objects"));
+    saved_state::decode(*this, this->mysql_select<::blob>("state"));
 }
 
 world::world(const std::string &name) : name(name)/*DEFAULT*/
@@ -316,58 +255,20 @@ world::world(const std::string &name) : name(name)/*DEFAULT*/
 }
 world::~world()
 {
-    this->mysql_update("owner", this->owner);
+    if (this->name.empty() || db == nullptr) return;
+    try
     {
-        ::blob blob;
-
-        const int x = this->blocks.size() / 60;
-        for (u_short i = 0; const ::block &block : this->blocks)
-        {
-            blob.push_back(block.to_blob());
-
-            if (block.fg != 0) // @note so we can save time
-            if (u_char type = get_type(id_to_item(block.fg)); type > 0x00)
-            {
-                const ::pos block_pos{i % x, i / x};
-                if (type == '\x01'/*doors, portal*/)
-                {
-                    auto door = std::ranges::find(this->doors, block_pos, &::door::pos);
-                    if (door != this->doors.end())
-                    {
-                        blob.push_back(door->to_blob());
-                    }
-                }
-                else if (type == '\x02'/*sign*/)
-                {
-                    auto sign = std::ranges::find(this->signs, block_pos, &::sign::pos);
-                    if (sign != this->signs.end())
-                    {
-                        blob.push_back(sign->to_blob());
-                    }
-                }
-                else if (type == '\x04'/*seed*/)
-                {
-                    auto tree = std::ranges::find(this->trees, block_pos, &::tree::pos);
-                    if (tree != this->trees.end())
-                    {
-                        blob.push_back(tree->to_blob());
-                    }
-                }
-            }
-            ++i;
-        }
-        this->mysql_update("blocks", blob);
+        const ::blob state = saved_state::encode(*this);
+        const ::blob saved_blocks = saved_state::blocks(*this);
+        const ::blob saved_objects = saved_state::objects(*this);
+        hTransaction transaction;
+        this->mysql_update("owner", this->owner);
+        this->mysql_update("blocks", saved_blocks);
+        this->mysql_update("objects", saved_objects);
+        this->mysql_update("state", state);
+        transaction.commit();
     }
-    {
-        ::blob blob{};
-
-        blob.i32(this->last_object_uid); // @todo add the other 4 bits like real growtopia
-        for (::object &object : this->objects)
-        {
-            blob.push_back(object.to_blob());
-        }
-        this->mysql_update("objects", blob.data());
-    }
+    catch (const std::exception &) { std::fprintf(stderr, "Unable to save world data\n"); }
 }
 
 std::vector<world> worlds;

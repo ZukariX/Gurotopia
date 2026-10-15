@@ -1,4 +1,5 @@
 #include "pch.hpp"
+#include "saved_state.hpp"
 #include "items.hpp"
 #include "world.hpp"
 #include "onVariant/SetClothing.hpp"
@@ -75,8 +76,8 @@ T peer::mysql_select(const std::string &column, const std::string &arg, bool by_
     mysql_stmt_bind_result(hStmt.pStmt, &result);
 
     hStmt.execute();
-    hStmt.fetch();
-    if constexpr (std::is_same_v<T, std::string>)
+    if (!hStmt.fetch()) return T{};
+    if constexpr (std::is_same_v<T, std::string> || std::is_same_v<T, std::vector<u_char>> || std::is_same_v<T, ::blob>)
         value.resize(length);
 
     return value;
@@ -91,19 +92,9 @@ void peer::mysql_select_all()
     this->password   = this->mysql_select<std::string>("password");
     this->created_at = this->mysql_select<std::time_t>("created_at", "UNIX_TIMESTAMP");
 
-    auto blob = this->mysql_select<std::vector<u_char>>("inventory");
-    const u_char *u8 = blob.data();
-
-    int pos{};
-    memcpy(&this->slot_size, u8 + pos, sizeof(int)); pos += sizeof(int);
-    short size{};
-    memcpy(&size, u8 + pos, sizeof(short)); pos += sizeof(short);
-    this->slots.resize(size);
-    for (::slot &slot : this->slots)
-    {
-        memcpy(&slot.id,    u8 + pos, sizeof(short)); pos += sizeof(short);
-        memcpy(&slot.count, u8 + pos, sizeof(short)); pos += sizeof(short);
-    }
+    saved_state::inventory(*this, this->mysql_select<std::vector<u_char>>("inventory"));
+    saved_state::decode(*this, this->mysql_select<::blob>("state"));
+    this->update_effects();
 }
 
 ::blob peer::serialize_inventory() const
@@ -118,8 +109,10 @@ void peer::mysql_select_all()
     return blob;
 }
 
-void peer::load(const std::string &growid, const std::string &password)
+bool peer::load(const std::string &growid, const std::string &password)
 {
+    this->loaded = false;
+    this->growid = growid;
     if (!this->exists(growid)) 
     {
         this->mysql_insert("growid", growid);
@@ -131,13 +124,25 @@ void peer::load(const std::string &growid, const std::string &password)
         this->slots[2ull] = ::slot{9640, 1}; // @note My First World Lock
         this->mysql_update<std::vector<u_char>>("inventory", this->serialize_inventory().data());
     }
-    this->mysql_select_all();
+    try { this->mysql_select_all(); }
+    catch (const std::exception &) { return false; }
+    this->loaded = this->user_id > 0;
+    return this->loaded;
 }
 
 peer::~peer()
 {
-    if (this->growid.empty()) return; // @note an offline "fake" peer that was never loaded has nothing to save
-    this->mysql_update<std::vector<u_char>>("inventory", this->serialize_inventory().data());
+    if (!this->loaded || db == nullptr) return;
+    try
+    {
+        const ::blob saved = saved_state::encode(*this);
+        const ::blob inventory = this->serialize_inventory();
+        hTransaction transaction;
+        this->mysql_update("inventory", inventory.data());
+        this->mysql_update("state", saved);
+        transaction.commit();
+    }
+    catch (const std::exception &) { std::fprintf(stderr, "Unable to save player data\n"); }
 }
 
 u_short peer::emplace(::slot slot) 

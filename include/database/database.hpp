@@ -1,6 +1,8 @@
 #pragma once
 
 #include <mysql/mysql.h>
+#include <stdexcept>
+#include <algorithm>
 
 extern MYSQL *db;
 
@@ -17,12 +19,28 @@ public:
 
     void bind_param(MYSQL_BIND *param);
     void execute();
-    void fetch();
+    bool fetch();
 
     /* https://dev.mysql.com/doc/mysql-errors/8.4/en/client-error-reference.html */
     void log_err() { std::fprintf(stderr, "[MariaDB] %s\n", mysql_error(db)); }
 
     MYSQL_STMT *pStmt;
+};
+
+class hTransaction
+{
+public:
+    hTransaction() { if (mysql_query(db, "START TRANSACTION")) throw std::runtime_error("Unable to begin save"); }
+    ~hTransaction() { if (!committed) mysql_rollback(db); }
+    hTransaction(const hTransaction &) = delete;
+    hTransaction &operator=(const hTransaction &) = delete;
+    void commit()
+    {
+        if (mysql_commit(db)) throw std::runtime_error("Unable to finish save");
+        committed = true;
+    }
+private:
+    bool committed{};
 };
 
 struct blob
@@ -48,35 +66,20 @@ struct blob
         mData.resize(size + sizeof(short));
         memcpy(mData.data() + size, &val, sizeof(short));
     }
-    void read_string(std::string &val, int &pos)
+    void read_string(std::string &value, int &pos) const
     {
-        short len{};
-        read_i16(len, pos);
-
-        val.resize(len);
-        memcpy(val.data(), mData.data() + pos, len);
-        pos += len;
+        short length{};
+        read_value(length, pos);
+        if (length < 0) throw std::out_of_range("Invalid saved string length");
+        require(pos, static_cast<std::size_t>(length));
+        value.assign(mData.begin() + pos, mData.begin() + pos + length);
+        pos += length;
     }
-    void read_u32(u_int &val, int &pos)
-    {
-        memcpy(&val, mData.data()+pos, sizeof(u_int));
-        pos += sizeof(u_int);
-    }
-    void read_i16(short &val, int &pos)
-    {
-        memcpy(&val, mData.data()+pos, sizeof(short));
-        pos += sizeof(short);
-    }
-    void read_i8(char &val, int &pos)
-    {
-        memcpy(&val, mData.data()+pos, sizeof(u_char));
-        pos += sizeof(u_char);
-    }
-    void read_u8(u_char &val, int &pos)
-    {
-        memcpy(&val, mData.data()+pos, sizeof(u_char));
-        pos += sizeof(u_char);
-    }
+    void read_u32(u_int &value, int &pos) const { read_value(value, pos); }
+    void read_i32(int &value, int &pos) const { read_value(value, pos); }
+    void read_i16(short &value, int &pos) const { read_value(value, pos); }
+    void read_u8(u_char &value, int &pos) const { read_value(value, pos); }
+    void read_f32(float &value, int &pos) const { read_value(value, pos); }
     void u8(u_char val) {
         mData.push_back(val);
     }
@@ -101,6 +104,18 @@ struct blob
     }
 
 private:
+    void require(int pos, std::size_t length) const
+    {
+        if (pos < 0 || static_cast<std::size_t>(pos) > mData.size()) throw std::out_of_range("Invalid save offset");
+        if (length > mData.size() - pos) throw std::out_of_range("Truncated saved data");
+    }
+    template<typename T>
+    void read_value(T &value, int &pos) const
+    {
+        require(pos, sizeof(T));
+        std::copy_n(mData.data() + pos, sizeof(T), reinterpret_cast<u_char*>(&value));
+        pos += sizeof(T);
+    }
     std::vector<u_char> mData;
 };
 

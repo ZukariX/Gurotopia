@@ -4,45 +4,62 @@
 
 #include "protocol.hpp"
 
+namespace
+{
+    bool read_credentials(::peer &player, const std::string &header)
+    {
+        player.growid.clear();
+        player.password.clear();
+        try
+        {
+            std::vector<std::string> pipes = readch(header, '|');
+            if (pipes.size() < 4ull) throw std::runtime_error("");
+
+            if (pipes[2ull] == "ltoken")
+            {
+                const std::string &decoded = base64_decode(pipes[3ull]);
+
+                if (std::size_t pos = decoded.find("growId="); pos != std::string::npos)
+                {
+                    pos += strlen("growId=");
+                    player.growid = decoded.substr(pos, decoded.find('&', pos) - pos);
+                }
+                if (std::size_t pos = decoded.find("password="); pos != std::string::npos)
+                {
+                    pos += strlen("password=");
+                    player.password = decoded.substr(pos, decoded.find('&', pos) - pos);
+                }
+            } // @note delete decoded
+            if (player.growid.empty() || player.password.empty()) throw std::runtime_error("");
+        }
+        catch (...) {
+            return false;
+        }
+        return true;
+    }
+}
+
 void action::protocol(ENetEvent& event, const std::string& header)
 {
     ::peer *pPeer = static_cast<::peer*>(event.peer->data);
-    try 
+    if (!read_credentials(*pPeer, header))
     {
-        std::vector<std::string> pipes = readch(header, '|');
-        if (pipes.size() < 4ull) throw std::runtime_error("");
-
-        if (pipes[2ull] == "ltoken")
-        {
-            const std::string &decoded = base64_decode(pipes[3ull]);
-            if (decoded.empty()) throw std::runtime_error("");
-
-            if (std::size_t pos = decoded.find("growId="); pos != std::string::npos) 
-            {
-                pos += strlen("growId=");
-                pPeer->growid = decoded.substr(pos, decoded.find('&', pos) - pos);
-            }
-            if (std::size_t pos = decoded.find("password="); pos != std::string::npos) 
-            {
-                pos += strlen("password=");
-                pPeer->password = decoded.substr(pos, decoded.find('&', pos) - pos);
-            }
-        } // @note delete decoded
-        if (pPeer->growid.empty() || pPeer->password.empty()) throw std::runtime_error("");
-    }
-    catch (...) { 
         send_action(*event.peer, "logon_fail", "");
-        return; // @note stop processing invalid protocol data
+        return;
     }
-    pPeer->load(pPeer->growid, pPeer->password); // @todo i want remove this tbh. since we only are fetching user_id which seems a waste.
+    if (!pPeer->load(pPeer->growid, pPeer->password))
+    {
+        send_action(*event.peer, "logon_fail", "");
+        return;
+    }
 
     send_varlist(event.peer, {
-        "OnSendToServer", 
-        (signed)gServer_data.port, 
-        0, 
-        pPeer->user_id, 
+        "OnSendToServer",
+        (signed)gServer_data.port,
+        0,
+        pPeer->user_id,
         std::format("{}|0|0", gServer_data.server), // @todo UUIDToken
-        1, 
+        1,
         pPeer->growid.c_str()
     }); // @note PACKET_DISCONNECT from client.
 }

@@ -10,7 +10,11 @@ void action::tankIDName(ENetEvent& event, const std::string& header)
     ::peer *pPeer = static_cast<::peer*>(event.peer->data);
 
     std::vector<std::string> pipes = readch(header, '|');
-    if (pipes.empty() || pipes.size() < 41ull) enet_peer_disconnect_later(event.peer, 0);
+    if (pipes.size() < 41ull)
+    {
+        enet_peer_disconnect_later(event.peer, 0);
+        return;
+    }
 
     /* @todo instead of setting these values we should check if there valid from SQL.*/
     std::string protocol{};
@@ -23,7 +27,11 @@ void action::tankIDName(ENetEvent& event, const std::string& header)
     }
     if (atoi(protocol.c_str()) == 0) return; // @todo <226
 
-    pPeer->load(pPeer->growid, pPeer->password); // @note the ACTUAL loading. the one in protocol.cpp must be removed for performance...
+    if (!pPeer->load(pPeer->growid, pPeer->password))
+    {
+        send_action(*event.peer, "logon_fail", "");
+        return;
+    }
 
     send_varlist(event.peer, { "OnOverrideGDPRFromServer", 18, 1, 0, 1 });
 

@@ -13,19 +13,25 @@ void create_table_if_not_exist()
             "growid VARCHAR(18) UNIQUE,"
             "password VARCHAR(18),"
             "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            "inventory BLOB"
+            "inventory BLOB,"
+            "state BLOB"
         ")";
     std::string query_world = 
         "CREATE TABLE IF NOT EXISTS world ("
             "name VARCHAR(24) NOT NULL PRIMARY KEY,"
             "owner INT DEFAULT 0,"
             "blocks BLOB,"
-            "objects BLOB"
+            "objects BLOB,"
+            "state BLOB"
         ")";
     if (mysql_query(db, query_peer.c_str()) || mysql_query(db, query_world.c_str()))
     {
         std::fprintf(stderr, "%s\n", mysql_error(db));
     }
+    if (mysql_query(db, "ALTER TABLE peer ADD COLUMN IF NOT EXISTS state BLOB") ||
+        mysql_query(db, "ALTER TABLE world ADD COLUMN IF NOT EXISTS state BLOB"))
+        std::fprintf(stderr, "[MariaDB] %s\n", mysql_error(db));
+
 }
 
 void mysql_connect()
@@ -49,13 +55,11 @@ void mysql_connect()
 hStmt::hStmt(const std::string &query)
 {
     this->pStmt = mysql_stmt_init(db);
-    if (!pStmt) 
+    if (!pStmt) throw std::runtime_error("Unable to allocate database statement");
+    if (mysql_stmt_prepare(pStmt, query.c_str(), static_cast<u_long>(query.size())))
     {
-        std::fprintf(stderr, "%s\n", mysql_error(db));
-    }
-    if (mysql_stmt_prepare(pStmt, query.c_str(), (u_long)query.size()))
-    {
-        std::fprintf(stderr, "%s\n", mysql_error(db));
+        mysql_stmt_close(pStmt);
+        throw std::runtime_error("Unable to prepare database statement");
     }
 }
 hStmt::~hStmt() 
@@ -72,15 +76,15 @@ void hStmt::bind_param(MYSQL_BIND *param)
 }
 void hStmt::execute()
 {
-    if (mysql_stmt_execute(pStmt)) log_err();
+    if (mysql_stmt_execute(pStmt)) throw std::runtime_error("Database statement failed");
 }
-void hStmt::fetch()
+bool hStmt::fetch()
 {
-    int value = mysql_stmt_fetch(pStmt);
-    if (value == 1 || value == MYSQL_DATA_TRUNCATED) log_err();
-    else if (value == 0 || value == MYSQL_NO_DATA) /*@todo do something later...*/; // @note success
+    const int result = mysql_stmt_fetch(pStmt);
+    if (result == 0) return true;
+    if (result == MYSQL_NO_DATA) return false;
+    throw std::runtime_error("Failed to read saved data");
 }
-
 
 /* ~ hStmt ~ */
 
@@ -146,13 +150,13 @@ MYSQL_BIND make_bind_out(std::string &buffer)
 }
 MYSQL_BIND make_bind_out(std::vector<u_char> &buffer)
 {
-    buffer.resize(cord(0, 60)* sizeof(::block));
+    buffer.resize(65535);
 
     return { .buffer = buffer.data(), .buffer_length = (u_long)buffer.size(), .buffer_type = MYSQL_TYPE_BLOB };
 }
 MYSQL_BIND make_bind_out(::blob &buffer)
 {
-    buffer.resize(cord(0, 60)* sizeof(::block));
+    buffer.resize(65535);
 
     return { .buffer = buffer.data().data(), .buffer_length = (u_long)buffer.size(), .buffer_type = MYSQL_TYPE_BLOB };
 }
