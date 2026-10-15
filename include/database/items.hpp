@@ -198,3 +198,5 @@ extern const ::item &id_to_item(u_short id) noexcept; // @note std::out_of_range
 extern std::vector<u_char> im_data;
 
 extern void decode_items();
+
+extern bool to_item_id(std::string_view text, short &id);

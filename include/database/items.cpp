@@ -1,6 +1,7 @@
 #include "pch.hpp"
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 #include "items.hpp"
 
@@ -13,6 +14,16 @@ const ::item &id_to_item(u_short id) noexcept // @note std::out_of_range is hand
     return items[id];
 }
 
+
+bool to_item_id(std::string_view text, short &id)
+{
+    int value{};
+    if (!to_int(text, value)) return false;
+    if (value <= 0 || value > std::numeric_limits<short>::max()) return false;
+    if (static_cast<std::size_t>(value) >= items.size()) return false;
+    id = static_cast<short>(value);
+    return true;
+}
 
 std::vector<u_char> im_data(sizeof(::gamePacket)/*inital packet*/, 0x00);
 

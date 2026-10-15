@@ -21,8 +21,8 @@ void on::EmoticonDataChanged(ENetEvent& event)
 {
     std::string EmoticonData;
     EmoticonData.reserve(emoticon.size() * 23/* emoticon data + ()||1/0& */);
-    for (const auto &[key, value] : emoticon) 
-        EmoticonData.append(std::format("({})|{}|1&", key, value)); // @todo add requirements for unlocking emoticons
+    for (const auto &entry : emoticon)
+        EmoticonData.append(std::format("({})|{}|1&", entry.first, entry.second)); // @todo add requirements for unlocking emoticons
 
     send_varlist(event.peer, {
         "OnEmoticonDataChanged", 

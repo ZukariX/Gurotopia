@@ -372,6 +372,21 @@ world::~world()
 
 std::vector<world> worlds;
 
+namespace
+{
+    bool tile_coordinate(float value, int limit)
+    {
+        return std::isfinite(value) && value >= 0 && value < limit && std::floor(value) == value;
+    }
+}
+
+::block *world::tile(const ::pos &at)
+{
+    if (!tile_coordinate(at.x, 100) || !tile_coordinate(at.y, 60)) return nullptr;
+    const auto index = static_cast<std::size_t>(at.y) * 100 + static_cast<std::size_t>(at.x);
+    return index < blocks.size() ? &blocks[index] : nullptr;
+}
+
 void send_action(ENetPeer& p, const std::string &action, const std::string &str) 
 {
     const std::string &fmt_action = std::format("action|{}\n", action);

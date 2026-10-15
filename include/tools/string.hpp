@@ -1,5 +1,9 @@
 #pragma once
 
+#include <string_view>
+
+extern bool to_int(std::string_view text, int &value);
+
 /*
     @param str the whole string
     @param c the char to search for and split

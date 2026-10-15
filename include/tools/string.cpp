@@ -1,7 +1,15 @@
 #include "pch.hpp"
 #include <ranges>
+#include <charconv>
 
 #include "string.hpp"
+
+bool to_int(std::string_view text, int &value)
+{
+    if (text.empty()) return false;
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    return result.ec == std::errc{} && result.ptr == text.data() + text.size();
+}
 
 std::vector<std::string> readch(const std::string &str, char deli) 
 {

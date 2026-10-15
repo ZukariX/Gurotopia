@@ -4,12 +4,11 @@
 
 void action::wrench(ENetEvent& event, const std::string& header) 
 {
-    std::vector<std::string> pipes = readch(header, '|');
     ::peer *pPeer = static_cast<::peer*>(event.peer->data);
 
-    if ((pipes[3ull] == "netid" && !pipes[4ull].empty()/*empty netid*/))
+    int netid{};
+    if (to_int(::hPipe{header}["netid"], netid) && netid > 0)
     {
-        const short netid = atoi(pipes[4ull].c_str());
         peers(pPeer->recent_worlds.back(), PEER_SAME_WORLD, [event, pPeer, netid](ENetPeer& peer) 
         {
             ::peer *pOthers = static_cast<::peer*>(peer.data);
