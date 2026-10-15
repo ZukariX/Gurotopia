@@ -11,7 +11,10 @@ enum wstate3 : u_char
 };
 
 /* locks that only occupy a number of tiles, and not the whole world. */
-#define is_tile_lock(id) (id == 202/*small*/ || id == 204/*big*/ || id == 206/*huge*/ || id == 4994/*builder*/)
+inline constexpr bool is_tile_lock(int id)
+{
+    return id == 202 || id == 204 || id == 206 || id == 4994;
+}
 
 enum wstate4 : u_char
 {
@@ -168,6 +171,7 @@ public:
     ::pos spawn{}; // @note position of main door
     ::pos weather{};
 
+    ::block *tile(const ::pos &at);
     ::blob serialize();
 };
 extern std::vector<world> worlds;
@@ -184,7 +188,8 @@ extern void tile_apply_damage(ENetEvent &event, gamePacket gamePacket, block &bl
 * @brief set slot::count to nagative value if you want to remove an amount. 
 * @return the remaining amount if exeeds 200. e.g. emplace(slot{0, 201}) returns 1.
 */
-extern u_short modify_item_inventory(ENetEvent &event, ::slot slot);
+extern u_short modify_item_inventory(ENetEvent &event, ::slot request);
+extern bool exchange_items(ENetEvent &event, const std::vector<::slot> &take, const std::vector<::slot> &give);
 
 extern void item_change_object(ENetEvent& event, ::gamePacket gamePacket);
 

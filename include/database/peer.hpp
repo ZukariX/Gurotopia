@@ -117,7 +117,8 @@ public:
     * @brief set slot::count to nagative value if you want to remove an amount. 
     * @return the remaining amount if exeeds 200. e.g. emplace(slot{0, 201}) returns 1.
     */
-    u_short emplace(::slot slot);
+    u_short emplace(::slot request);
+    int held(int id) const;
     ::blob serialize_inventory() const;
 
     std::vector<short> fav{};

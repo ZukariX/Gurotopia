@@ -8,6 +8,7 @@
 #include "tools/string.hpp"
 
 #include "peer.hpp"
+#include "inventory.hpp"
 
 bool peer::exists(const std::string &growid)
 {
@@ -140,21 +141,20 @@ peer::~peer()
     this->mysql_update<std::vector<u_char>>("inventory", this->serialize_inventory().data());
 }
 
-u_short peer::emplace(::slot slot) 
+int peer::held(int id) const
 {
-    if (auto it = std::ranges::find(this->slots, slot.id, &::slot::id); it != this->slots.end()) 
+    return inventory::count(slots, id);
+}
+
+u_short peer::emplace(::slot request)
+{
+    const short applied = inventory::change(slots, slot_size, request);
+    if (applied < 0 && held(request.id) == 0)
     {
-        const u_short excess = std::max(0, (it->count + slot.count) - 200);
-        it->count = std::min(it->count + slot.count, 200);
-        if (it->count == 0)
-        {
-            const ::item &item = id_to_item(it->id);
-            if (item.cloth_type != clothing::NONE) this->clothing[item.cloth_type] = 0;
-        }
-        return excess;
+        const auto kind = id_to_item(request.id).cloth_type;
+        if (kind != clothing::NONE && clothing[kind] == request.id) clothing[kind] = 0;
     }
-    else this->slots.emplace_back(std::move(slot)); // @note no such item in inventory, so we create a new entry.
-    return 0;
+    return request.count > 0 ? request.count - applied : 0;
 }
 
 void peer::add_xp(ENetEvent &event, u_short value) 

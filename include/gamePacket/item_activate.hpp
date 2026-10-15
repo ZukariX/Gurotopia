@@ -1,3 +1,3 @@
 #pragma once
 
-extern void item_activate(ENetEvent& event, ::gamePacket gamePacket);
+extern void item_activate(ENetEvent& event, ::gamePacket packet);

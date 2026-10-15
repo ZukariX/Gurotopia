@@ -4,6 +4,8 @@
 #include "onVariant/ConsoleMessage.hpp"
 
 #include "world.hpp"
+#include "inventory.hpp"
+#include "onVariant/SetClothing.hpp"
 
 char get_type(const ::item &item)
 {
@@ -372,6 +374,21 @@ world::~world()
 
 std::vector<world> worlds;
 
+namespace
+{
+    bool tile_coordinate(float value, int limit)
+    {
+        return std::isfinite(value) && value >= 0 && value < limit && std::floor(value) == value;
+    }
+}
+
+::block *world::tile(const ::pos &at)
+{
+    if (!tile_coordinate(at.x, 100) || !tile_coordinate(at.y, 60)) return nullptr;
+    const auto index = static_cast<std::size_t>(at.y) * 100 + static_cast<std::size_t>(at.x);
+    return index < blocks.size() ? &blocks[index] : nullptr;
+}
+
 void send_action(ENetPeer& p, const std::string &action, const std::string &str) 
 {
     const std::string &fmt_action = std::format("action|{}\n", action);
@@ -424,16 +441,34 @@ void tile_apply_damage(ENetEvent &event, ::gamePacket gamePacket, block &block, 
 	state_visuals(*event.peer, std::move(gamePacket));
 }
 
-u_short modify_item_inventory(ENetEvent &event, ::slot slot)
-{   
-    ::peer *pPeer = static_cast<::peer*>(event.peer->data);
+u_short modify_item_inventory(ENetEvent &event, ::slot request)
+{
+    ::peer &player = *static_cast<::peer*>(event.peer->data);
+    const int before = player.held(request.id);
+    const auto clothing = player.clothing;
+    const u_short excess = player.emplace(request);
+    const int applied = player.held(request.id) - before;
+    if (applied == 0) return excess;
+    ::gamePacket packet{.id = request.id};
+    packet.type = applied < 0 ? (-applied << 16) | 0x000d : (applied << 24) | 0x000d;
+    send_data(*event.peer, compress_state(packet));
+    if (player.clothing != clothing)
+    {
+        player.update_effects();
+        on::SetClothing(*event.peer);
+    }
+    return excess;
+}
 
-    ::gamePacket gamePacket{.id = slot.id};
-    if (slot.count < 0) gamePacket.type = (slot.count*-1 << 16) | 0x000d; // @noote 0x00{}000d
-    else                gamePacket.type = (slot.count    << 24) | 0x000d; // @noote 0x{}00000d
-    send_data(*event.peer, compress_state(gamePacket)); // @note only the player whose backpack changes
-
-    return pPeer->emplace(::slot(slot.id, slot.count));
+bool exchange_items(ENetEvent &event, const std::vector<::slot> &take, const std::vector<::slot> &give)
+{
+    ::peer &player = *static_cast<::peer*>(event.peer->data);
+    std::vector<::slot> after;
+    if (!inventory::plan(player.slots, player.slot_size, take, give, after)) return false;
+    player.slots.reserve(after.size());
+    for (const ::slot &item : take) modify_item_inventory(event, ::slot{item.id, static_cast<short>(-item.count)});
+    for (const ::slot &item : give) modify_item_inventory(event, item);
+    return true;
 }
 
 void item_change_object(ENetEvent &event, ::gamePacket gamePacket) 
