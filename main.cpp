@@ -21,10 +21,12 @@ static void signal_handler(int signal) { gSignal = signal; }
 int main()
 {
     std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
 #ifdef SIGHUP // @note unix
     std::signal(SIGHUP, signal_handler); // @note PuTTY, SSH problems
 #endif
 
+    std::thread https_thread;
     mysql_library_init(0, NULL, NULL);
     enet_initialize();
     {
@@ -35,7 +37,7 @@ int main()
         };
 
         host = enet_host_create (ENET_ADDRESS_TYPE_IPV4, &address, 50ull/* max peer count */, 2ull, 0u, 0u);
-        std::thread(&https::listener).detach();
+        https_thread = std::thread(&https::listener);
     } // @note delete address
     host->usingNewPacketForServer = true;
     host->checksum = enet_crc32;
@@ -53,6 +55,8 @@ int main()
             if (const auto i = eventType_pool.find(event.type); i != eventType_pool.end())
                 i->second(event);
 
+    https::stop();
+    if (https_thread.joinable()) https_thread.join();
     safe_disconnect_peers(gSignal);
     mysql_close(db); // @note deletes db (MYSQL* allocation)
     mysql_library_end();
