@@ -1,48 +1,33 @@
 #include "pch.hpp"
 #include "https/server_data.hpp"
-#include "proton/Variant.hpp"
-
+#include "tools/login.hpp"
 #include "protocol.hpp"
 
-void action::protocol(ENetEvent& event, const std::string& header)
+namespace
 {
-    ::peer *pPeer = static_cast<::peer*>(event.peer->data);
-    try 
+    std::string field(const std::string &body, const std::string &key)
     {
-        std::vector<std::string> pipes = readch(header, '|');
-        if (pipes.size() < 4ull) throw std::runtime_error("");
-
-        if (pipes[2ull] == "ltoken")
+        for (const auto &part : readch(body, '&'))
         {
-            const std::string &decoded = base64_decode(pipes[3ull]);
-            if (decoded.empty()) throw std::runtime_error("");
-
-            if (std::size_t pos = decoded.find("growId="); pos != std::string::npos) 
-            {
-                pos += strlen("growId=");
-                pPeer->growid = decoded.substr(pos, decoded.find('&', pos) - pos);
-            }
-            if (std::size_t pos = decoded.find("password="); pos != std::string::npos) 
-            {
-                pos += strlen("password=");
-                pPeer->password = decoded.substr(pos, decoded.find('&', pos) - pos);
-            }
-        } // @note delete decoded
-        if (pPeer->growid.empty() || pPeer->password.empty()) throw std::runtime_error("");
+            if (!part.starts_with(key + "=")) continue;
+            return part.substr(key.size() + 1);
+        }
+        return {};
     }
-    catch (...) { 
-        send_action(*event.peer, "logon_fail", "");
-        return; // @note stop processing invalid protocol data
-    }
-    pPeer->load(pPeer->growid, pPeer->password); // @todo i want remove this tbh. since we only are fetching user_id which seems a waste.
+}
 
+void action::protocol(ENetEvent &event, const std::string &header)
+{
+    ::peer &player = *static_cast<::peer*>(event.peer->data);
+    if (player.authenticated) return;
+    const std::string decoded = base64_decode(::hPipe{header}["ltoken"]);
+    const std::string name = field(decoded, "growId");
+    const std::string password = field(decoded, "password");
+    if (!player.load(name, password)) { login::refuse(event); return; }
+    login::ticket ticket;
+    if (!login::issue(player, ticket)) { login::refuse(event); return; }
     send_varlist(event.peer, {
-        "OnSendToServer", 
-        (signed)gServer_data.port, 
-        0, 
-        pPeer->user_id, 
-        std::format("{}|0|0", gServer_data.server), // @todo UUIDToken
-        1, 
-        pPeer->growid.c_str()
-    }); // @note PACKET_DISCONNECT from client.
+        "OnSendToServer", static_cast<int>(gServer_data.port), ticket.token, player.user_id,
+        std::format("{}|0|{}", gServer_data.server, ticket.uuid), 1, player.growid
+    });
 }

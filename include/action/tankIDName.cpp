@@ -2,28 +2,26 @@
 #include "automate/holiday.hpp"
 
 #include "tankIDName.hpp"
+#include "tools/login.hpp"
+#include <charconv>
 
 /* GameLogicComponent::OnInitialLogonAccepted(VariantList*) */
 
 void action::tankIDName(ENetEvent& event, const std::string& header)
 {
     ::peer *pPeer = static_cast<::peer*>(event.peer->data);
-
-    std::vector<std::string> pipes = readch(header, '|');
-    if (pipes.empty() || pipes.size() < 41ull) enet_peer_disconnect_later(event.peer, 0);
-
-    /* @todo instead of setting these values we should check if there valid from SQL.*/
-    std::string protocol{};
-    for (std::size_t i = 0; i < pipes.size(); ++i) 
+    if (pPeer->authenticated) return;
+    const ::hPipe packet{header};
+    const std::string protocol = packet["protocol"];
+    int version{};
+    const auto parsed = std::from_chars(protocol.data(), protocol.data() + protocol.size(), version);
+    if (parsed.ec != std::errc{} || parsed.ptr != protocol.data() + protocol.size() || version <= 0)
     {
-        if      (pipes[i] == "tankIDName") pPeer->growid = pipes[i+1];
-        else if (pipes[i] == "protocol")   protocol = pipes[i+1];
-        else if (pipes[i] == "country")    pPeer->country = pipes[i+1];
-        else if (pipes[i] == "user")       pPeer->user_id = std::stoi(pipes[i+1]); // @todo validate user_id
+        login::refuse(event);
+        return;
     }
-    if (atoi(protocol.c_str()) == 0) return; // @todo <226
-
-    pPeer->load(pPeer->growid, pPeer->password); // @note the ACTUAL loading. the one in protocol.cpp must be removed for performance...
+    if (!login::consume(*pPeer, packet)) { login::refuse(event); return; }
+    pPeer->country = packet["country"];
 
     send_varlist(event.peer, { "OnOverrideGDPRFromServer", 18, 1, 0, 1 });
 

@@ -118,26 +118,51 @@ void peer::mysql_select_all()
     return blob;
 }
 
-void peer::load(const std::string &growid, const std::string &password)
+namespace
 {
-    if (!this->exists(growid)) 
+    bool valid_name(const std::string &name)
     {
-        this->mysql_insert("growid", growid);
-        this->mysql_update("password", password);
-
-        this->slots.resize(3ull); // @note since it's pre-determined we don't need do peer::emplace, and less iteration
-        this->slots[0ull] = ::slot{18, 1};   // @note Fist
-        this->slots[1ull] = ::slot{32, 1};   // @note Wrench
-        this->slots[2ull] = ::slot{9640, 1}; // @note My First World Lock
-        this->mysql_update<std::vector<u_char>>("inventory", this->serialize_inventory().data());
+        if (name.empty() || name.size() > 18) return false;
+        return std::ranges::all_of(name, [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        });
     }
-    this->mysql_select_all();
+}
+
+bool peer::load_existing(const std::string &name)
+{
+    loaded = authenticated = false;
+    if (!exists(name)) return false;
+    growid = name;
+    try { mysql_select_all(); }
+    catch (const std::exception &) { return false; }
+    loaded = user_id > 0;
+    return loaded;
+}
+
+bool peer::load(const std::string &name, const std::string &supplied_password)
+{
+    loaded = authenticated = false;
+    if (!valid_name(name)) return false;
+    if (supplied_password.empty() || supplied_password.size() > 18) return false;
+    growid = name;
+    if (!exists(name))
+    {
+        mysql_insert("growid", name);
+        mysql_update("password", supplied_password);
+        slots = {{18, 1}, {32, 1}, {9640, 1}};
+        mysql_update<std::vector<u_char>>("inventory", serialize_inventory().data());
+    }
+    const std::string stored = mysql_select<std::string>("password");
+    if (stored.size() != supplied_password.size()) return false;
+    if (CRYPTO_memcmp(stored.data(), supplied_password.data(), stored.size()) != 0) return false;
+    return load_existing(name);
 }
 
 peer::~peer()
 {
-    if (this->growid.empty()) return; // @note an offline "fake" peer that was never loaded has nothing to save
-    this->mysql_update<std::vector<u_char>>("inventory", this->serialize_inventory().data());
+    if (!loaded || !authenticated) return;
+    mysql_update<std::vector<u_char>>("inventory", serialize_inventory().data());
 }
 
 u_short peer::emplace(::slot slot) 

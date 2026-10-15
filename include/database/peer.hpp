@@ -74,7 +74,10 @@ class peer {
 public:
     ~peer();
 
-    void load(const std::string &growid, const std::string &password);
+    bool load(const std::string &name, const std::string &supplied_password);
+    bool load_existing(const std::string &name);
+    bool loaded{};
+    bool authenticated{};
 
     bool exists(const std::string &growid);
 
