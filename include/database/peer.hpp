@@ -73,6 +73,7 @@ enum pstate : int
 class peer {
 public:
     ~peer();
+    void save();
 
     void load(const std::string &growid, const std::string &password);
 

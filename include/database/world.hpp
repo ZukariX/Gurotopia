@@ -11,7 +11,10 @@ enum wstate3 : u_char
 };
 
 /* locks that only occupy a number of tiles, and not the whole world. */
-#define is_tile_lock(id) (id == 202/*small*/ || id == 204/*big*/ || id == 206/*huge*/ || id == 4994/*builder*/)
+inline constexpr bool is_tile_lock(int id)
+{
+    return id == 202 || id == 204 || id == 206 || id == 4994;
+}
 
 enum wstate4 : u_char
 {
@@ -132,6 +135,7 @@ class world
 public:
     world(const std::string &name = "");/*DEFAULT*/
     ~world();
+    void save();
 
     bool exists(const std::string& name);
 

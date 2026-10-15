@@ -21,6 +21,7 @@ static void signal_handler(int signal) { gSignal = signal; }
 int main()
 {
     std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
 #ifdef SIGHUP // @note unix
     std::signal(SIGHUP, signal_handler); // @note PuTTY, SSH problems
 #endif
@@ -49,12 +50,16 @@ int main()
 
     ENetEvent event{};
     while (!gSignal)
-        while (enet_host_service(host, &event, 1000/*ms*/) > 0)
-            if (const auto i = eventType_pool.find(event.type); i != eventType_pool.end())
-                i->second(event);
+    {
+        const int received = enet_host_service(host, &event, 1000);
+        if (received < 0) break;
+        if (received == 0) continue;
+        if (const auto i = eventType_pool.find(event.type); i != eventType_pool.end()) i->second(event);
+    }
 
     safe_disconnect_peers(gSignal);
     mysql_close(db); // @note deletes db (MYSQL* allocation)
+    db = nullptr;
     mysql_library_end();
 
     puts("killed gurotopia! [EXIT_SUCCESS]");

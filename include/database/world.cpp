@@ -314,60 +314,48 @@ world::world(const std::string &name) : name(name)/*DEFAULT*/
         generate_world(*this);
     }
 }
-world::~world()
+namespace
 {
-    this->mysql_update("owner", this->owner);
+    template<typename T>
+    void append_tile_data(::blob &data, const std::vector<T> &entries, const ::pos &at)
     {
-        ::blob blob;
+        const auto found = std::ranges::find(entries, at, &T::pos);
+        if (found != entries.end()) data.push_back(found->to_blob());
+    }
 
-        const int x = this->blocks.size() / 60;
-        for (u_short i = 0; const ::block &block : this->blocks)
+    ::blob saved_blocks(const ::world &world)
+    {
+        ::blob data;
+        for (int i = 0; const ::block &block : world.blocks)
         {
-            blob.push_back(block.to_blob());
-
-            if (block.fg != 0) // @note so we can save time
-            if (u_char type = get_type(id_to_item(block.fg)); type > 0x00)
+            data.push_back(block.to_blob());
+            const ::pos at{i % 100, i / 100};
+            switch (get_type(id_to_item(block.fg)))
             {
-                const ::pos block_pos{i % x, i / x};
-                if (type == '\x01'/*doors, portal*/)
-                {
-                    auto door = std::ranges::find(this->doors, block_pos, &::door::pos);
-                    if (door != this->doors.end())
-                    {
-                        blob.push_back(door->to_blob());
-                    }
-                }
-                else if (type == '\x02'/*sign*/)
-                {
-                    auto sign = std::ranges::find(this->signs, block_pos, &::sign::pos);
-                    if (sign != this->signs.end())
-                    {
-                        blob.push_back(sign->to_blob());
-                    }
-                }
-                else if (type == '\x04'/*seed*/)
-                {
-                    auto tree = std::ranges::find(this->trees, block_pos, &::tree::pos);
-                    if (tree != this->trees.end())
-                    {
-                        blob.push_back(tree->to_blob());
-                    }
-                }
+                case '\x01': append_tile_data(data, world.doors, at); break;
+                case '\x02': append_tile_data(data, world.signs, at); break;
+                case '\x04': append_tile_data(data, world.trees, at); break;
             }
             ++i;
         }
-        this->mysql_update("blocks", blob);
+        return data;
     }
-    {
-        ::blob blob{};
+}
 
-        blob.i32(this->last_object_uid); // @todo add the other 4 bits like real growtopia
-        for (::object &object : this->objects)
-        {
-            blob.push_back(object.to_blob());
-        }
-        this->mysql_update("objects", blob.data());
-    }
+void world::save()
+{
+    if (name.empty()) return;
+    this->mysql_update("owner", this->owner);
+    this->mysql_update("blocks", saved_blocks(*this));
+    ::blob objects;
+    objects.u32(this->last_object_uid);
+    for (const auto &object : this->objects) objects.push_back(object.to_blob());
+    this->mysql_update("objects", objects);
+}
+
+world::~world()
+{
+    if (db != nullptr) save();
 }
 
 std::vector<world> worlds;

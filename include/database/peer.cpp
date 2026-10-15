@@ -134,10 +134,15 @@ void peer::load(const std::string &growid, const std::string &password)
     this->mysql_select_all();
 }
 
+void peer::save()
+{
+    if (growid.empty() || user_id <= 0) return; // @note an offline "fake" peer that was never loaded has nothing to save
+    this->mysql_update<std::vector<u_char>>("inventory", this->serialize_inventory().data());
+}
+
 peer::~peer()
 {
-    if (this->growid.empty()) return; // @note an offline "fake" peer that was never loaded has nothing to save
-    this->mysql_update<std::vector<u_char>>("inventory", this->serialize_inventory().data());
+    if (db != nullptr) save();
 }
 
 u_short peer::emplace(::slot slot) 
@@ -220,11 +225,17 @@ std::vector<ENetPeer*> peers(const std::string &world, peer_condition condition,
 
 void safe_disconnect_peers(int code)
 {
-    peers("", peer_condition::PEER_ALL, [](ENetPeer &p) { enet_peer_disconnect(&p, 0); });
+    if (host == nullptr) return;
+    for (ENetPeer &connection : std::span(host->peers, host->peerCount))
+    {
+        delete static_cast<::peer*>(connection.data);
+        connection.data = nullptr;
+        enet_peer_disconnect(&connection, code);
+    }
     enet_host_flush(host);
-    
+    worlds.clear();
     enet_host_destroy(host);
-    host = nullptr; // @todo clean this up better
+    host = nullptr;
     enet_deinitialize();
 }
 
