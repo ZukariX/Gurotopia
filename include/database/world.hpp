@@ -50,10 +50,17 @@ struct block
 
     u_char hits[2] = {0, 0}; // @note fg, bg
 
+    u_short auction_item{};
+    u_int auction_end_time{};
+    u_char auction_duration{1};
+    u_int auction_price{};
+    u_char auction_state{};
+
     void reset();
 
     ::blob to_blob() const;
 };
+extern ::blob auction_extra(const ::block &block);
 #define cord(x,y) (y * 100 + x)
 
 struct door 
@@ -140,11 +147,12 @@ public:
     void mysql_insert(const std::string& column, const T& value);
 
     template<typename T>
-    void mysql_update(const std::string& column, const T& value);
+    bool mysql_update(const std::string& column, const T& value);
 
     template<typename T>
     T    mysql_select(const std::string &column, const std::string &arg = "");
     void mysql_select_all();
+    bool mysql_update_all();
 
     std::string name{};
 

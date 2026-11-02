@@ -8,6 +8,7 @@
 #include "onVariant/ConsoleMessage.hpp"
 #include "onVariant/TradeStatus.hpp"
 #include "tools/time.hpp"
+#include "database/auction.hpp"
 
 #include "join_request.hpp"
 
@@ -49,9 +50,17 @@ void action::join_request(ENetEvent& event, const std::string &header, const std
             it = worlds.emplace(worlds.end(), name);
             
         ::world &world = *it;
+        pPeer->auction_world.clear();
+        pPeer->auction_pos = {-1, -1};
+        pPeer->auction_item = 0;
+        pPeer->auction_price = 0;
+        pPeer->auction_duration = 1;
         {
-            ::blob blob = compress_state(::gamePacket{ .type = 0x04, /*PACKET_SEND_MAP_DATA*/ .state = (int)gamePacketState::EXTENDED });
-            blob.push_back(world.serialize());
+            const ::blob map = world.serialize();
+            ::blob blob = compress_state(::gamePacket{
+                .type = 0x04, /*PACKET_SEND_MAP_DATA*/ .state = (int)gamePacketState::EXTENDED, .size = static_cast<u_int>(map.size())
+            });
+            blob.push_back(map);
 
             ENetPacket *packet = enet_packet_create(blob.data().data(), blob.size(), ENET_PACKET_FLAG_RELIABLE);
             if (enet_peer_send(event.peer, 0, packet)) enet_packet_destroy(packet);
@@ -111,6 +120,7 @@ void action::join_request(ENetEvent& event, const std::string &header, const std
         world_lock_message(event, world);
         ++world.visitors;
         on::SetClothing(event.peer);
+        send_auction_hud(event.peer);
         on::CountryState(event);
 
         send_varlist(event.peer, {

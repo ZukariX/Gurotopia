@@ -30,6 +30,13 @@
 
 #include "worldlock_storage_getpage.hpp"
 #include "worldlock_storage_modify_amount.hpp"
+#include "auction_getpage.hpp"
+#include "auction_place_bid.hpp"
+#include "set_auction_tile.hpp"
+#include "mailbox_getpage.hpp"
+#include "mailbox_readmessage.hpp"
+#include "mailbox_claimreward.hpp"
+#include "mailbox_claimrewardsmany.hpp"
 
 #include "quit.hpp"
 
@@ -67,6 +74,14 @@ std::unordered_map<std::string, std::function<void(ENetEvent&, const std::string
 
     {"action|worldlock_storage_getpage", std::bind(&action::worldlock_storage_getpage, std::placeholders::_1, std::placeholders::_2)},
     {"action|worldlock_storage_modify_amount", std::bind(&action::worldlock_storage_modify_amount, std::placeholders::_1, std::placeholders::_2)},
+
+    {"action|auction_getpage", std::bind(&action::auction_getpage, std::placeholders::_1, std::placeholders::_2)},
+    {"action|auction_place_bid", std::bind(&action::auction_place_bid, std::placeholders::_1, std::placeholders::_2)},
+    {"action|set_auction_tile", std::bind(&action::set_auction_tile, std::placeholders::_1, std::placeholders::_2)},
+    {"action|mailbox_getpage", std::bind(&action::mailbox_getpage, std::placeholders::_1, std::placeholders::_2)},
+    {"action|mailbox_readmessage", std::bind(&action::mailbox_readmessage, std::placeholders::_1, std::placeholders::_2)},
+    {"action|mailbox_claimreward", std::bind(&action::mailbox_claimreward, std::placeholders::_1, std::placeholders::_2)},
+    {"action|mailbox_claimrewardsmany", std::bind(&action::mailbox_claimrewardsmany, std::placeholders::_1, std::placeholders::_2)},
 
     {"action|quit", std::bind(&action::quit, std::placeholders::_1, std::placeholders::_2)}
 };

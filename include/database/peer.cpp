@@ -87,15 +87,15 @@ template std::string peer::mysql_select<std::string>(const std::string&, const s
 
 void peer::mysql_select_all(bool by_user_id)
 {
-    this->user_id    = this->mysql_select<signed>("uid");
-    this->growid     = this->mysql_select<std::string>("growid");
-    this->password   = this->mysql_select<std::string>("password");
-    this->created_at = this->mysql_select<std::time_t>("created_at", "UNIX_TIMESTAMP");
-    this->gems       = this->mysql_select<long long>("gems");
-    this->wl_storage = this->mysql_select<signed>("wl_storage");
-    this->level[0]   = this->mysql_select<signed>("level");
-    this->level[1]   = this->mysql_select<signed>("xp");
-    auto inventory   = this->mysql_select<::blob>("inventory");
+    this->user_id    = this->mysql_select<signed>("uid", "", by_user_id);
+    this->growid     = this->mysql_select<std::string>("growid", "", by_user_id);
+    this->password   = this->mysql_select<std::string>("password", "", by_user_id);
+    this->created_at = this->mysql_select<std::time_t>("created_at", "UNIX_TIMESTAMP", by_user_id);
+    this->gems       = this->mysql_select<long long>("gems", "", by_user_id);
+    this->wl_storage = this->mysql_select<signed>("wl_storage", "", by_user_id);
+    this->level[0]   = this->mysql_select<signed>("level", "", by_user_id);
+    this->level[1]   = this->mysql_select<signed>("xp", "", by_user_id);
+    auto inventory   = this->mysql_select<::blob>("inventory", "", by_user_id);
 
     if (inventory.size() >= sizeof(int)/*slot_size*/ + sizeof(short)/*size*/)
     {
@@ -134,9 +134,9 @@ void peer::mysql_select_all(bool by_user_id)
     return blob;
 }
 
-void peer::mysql_update_all()
+bool peer::mysql_update_all()
 {
-    if (this->growid.empty()) return;
+    if (this->growid.empty()) return false;
 
     ::hStmt hStmt{ "UPDATE peer SET inventory = ?, gems = ?, level = ?, xp = ?, wl_storage = ? WHERE growid = ?" };
     const ::blob inventory = this->serialize_inventory();
@@ -152,6 +152,7 @@ void peer::mysql_update_all()
     };
     hStmt.bind_param(params);
     hStmt.execute();
+    return mysql_stmt_errno(hStmt.pStmt) == 0;
 }
 
 bool peer::load(const std::string &growid, const std::string password)

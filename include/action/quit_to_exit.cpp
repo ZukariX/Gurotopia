@@ -9,6 +9,11 @@ void action::quit_to_exit(ENetEvent& event, const std::string& header, bool skip
 {
     ::peer *pPeer = static_cast<::peer*>(event.peer->data);
 
+    pPeer->auction_world.clear();
+    pPeer->auction_pos = {-1, -1};
+    pPeer->auction_item = 0;
+    pPeer->auction_price = 0;
+    pPeer->auction_duration = 1;
     auto world = std::ranges::find(worlds, pPeer->recent_worlds.back(), &::world::name);
     if (world == worlds.end()) return; // @note peer was not in a world, therefore nothing to exit from.
 

@@ -10,6 +10,8 @@
 #include "tools/create_dialog.hpp"
 #include "action/quit_to_exit.hpp"
 #include "action/join_request.hpp"
+#include "database/auction.hpp"
+#include "onVariant/ActiveAuctionUpdate.hpp"
 
 #include "item_activate_object.hpp"
 #include "item_activate.hpp"
@@ -25,11 +27,39 @@ void tile_change(ENetEvent& event, ::gamePacket gamePacket)
     {
         auto world = std::ranges::find(worlds, pPeer->recent_worlds.back(), &::world::name);
         if (world == worlds.end()) return;
+        if (!std::isfinite(gamePacket.punch.x) || !std::isfinite(gamePacket.punch.y) ||
+            gamePacket.punch.x < 0 || gamePacket.punch.x >= 100 || gamePacket.punch.y < 0 || gamePacket.punch.y >= world->blocks.size() / 100 ||
+            gamePacket.punch.x != std::floor(gamePacket.punch.x) || gamePacket.punch.y != std::floor(gamePacket.punch.y)) return;
 
         ::block &block = world->blocks[cord(gamePacket.punch.x, gamePacket.punch.y)];
 
         const ::item &item = id_to_item((gamePacket.id != 32 && gamePacket.id != 18) ? gamePacket.id : (block.fg != 0) ? block.fg : block.bg);
         if (item.id == 0) return;
+
+        if (gamePacket.id == 32 && block.fg == 15546/*Auction Block*/)
+        {
+            const auto auction = std::ranges::find_if(auctions, [&world, &gamePacket](const ::auction_entry &entry)
+            {
+                return entry.world == world->name && entry.pos == gamePacket.punch;
+            });
+            if (auction == auctions.end() && pPeer->user_id != world->owner) return;
+            pPeer->auction_world = world->name;
+            pPeer->auction_pos = gamePacket.punch;
+            pPeer->auction_item = block.auction_item;
+            pPeer->auction_price = block.auction_price;
+            pPeer->auction_duration = block.auction_duration;
+            send_varlist(event.peer, { "OnDialogRequestRML", auction == auctions.end() ? "show_auction_block_ui_setup" : "show_auction_block_ui_bid" });
+            on::ActiveAuctionUpdate(event.peer, auction == auctions.end() ? nullptr : &*auction, 500/*ms*/);
+            return;
+        }
+        if (gamePacket.id != 32 && std::ranges::any_of(auctions, [&world](const ::auction_entry &auction) { return auction.world == world->name; }))
+        {
+            const std::string message{"You can't modify the world while there is an active auction."};
+            send_varlist(event.peer, { "OnTalkBubble", static_cast<u_int>(pPeer->netid), message, 0u, 1u });
+            on::ConsoleMessage(event.peer, message);
+            send_varlist(event.peer, { "OnPlayPositioned", "audio/punch_locked.wav" }, pPeer->netid);
+            return;
+        }
 
         if (block.state[3] & S_FIRE) // @note allow anyone to take out fire
             if (pPeer->clothing[clothing::HAND] == 3066/* fire hose */)

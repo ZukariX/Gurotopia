@@ -9,6 +9,8 @@
 #include "include/https/https.hpp" // @note https::listener()
 #include "include/https/server_data.hpp" // @note gServer_data
 #include "include/database/database.hpp"
+#include "include/database/auction.hpp"
+#include "include/database/mail.hpp"
 #include "include/automate/holiday.hpp"
 #include "include/tools/terminal.hpp"
 
@@ -48,14 +50,18 @@ int main()
     db.mysql_connect();
 
     decode_items_dat();
+    load_auctions();
     parse_store();
     check_for_holiday();
 
     ENetEvent event{};
     while (!gSignal)
-        while (enet_host_service(host, &event, 1000/*ms*/) > 0)
+    {
+        update_auctions();
+        if (enet_host_service(host, &event, 1000/*ms*/) > 0)
             if (const auto i = eventType_pool.find(event.type); i != eventType_pool.end())
                 i->second(event);
+    }
 
     safe_disconnect_peers(gSignal);
     enet_host_destroy(host);

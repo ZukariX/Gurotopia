@@ -5,6 +5,7 @@
 #include "onVariant/ConsoleMessage.hpp"
 #include "onVariant/SetBux.hpp"
 #include "automate/holiday.hpp"
+#include "database/mail.hpp"
 
 #include "enter_game.hpp"
 
@@ -12,6 +13,7 @@ void action::enter_game(ENetEvent& event, const std::string& header)
 {
     ::peer *pPeer = static_cast<::peer*>(event.peer->data);
 
+    send_mailbox_button(event.peer);
     pPeer->display_growid = std::format("`w{}``", pPeer->growid);
     on::ConsoleMessage(event.peer, 
         std::format("Welcome back, {}. No friends are online.", 
@@ -48,6 +50,7 @@ void action::enter_game(ENetEvent& event, const std::string& header)
 
     on::RequestWorldSelectMenu(event);
     on::RequestGazette(event);
+    send_varlist(event.peer, { "OnAuctionPageTimeoutLogon", 30 });
 
     send_data(*event.peer, compress_state(::gamePacket{ .type = 0x16 /*PACKET_PING_REQUEST*/ }));
     if (pPeer->game_version >= 5.47)

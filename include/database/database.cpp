@@ -32,6 +32,38 @@ void mysql_gateway::create_table_if_not_exist()
     ")");
     
     if (error) print(mysql_error(mysql));
+
+    error = mysql_query(mysql,
+        "CREATE TABLE IF NOT EXISTS auction ("
+        "id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,"
+        "world VARCHAR(24) NOT NULL,"
+        "x TINYINT UNSIGNED NOT NULL,"
+        "y TINYINT UNSIGNED NOT NULL,"
+        "owner INT NOT NULL,"
+        "item INT UNSIGNED NOT NULL,"
+        "price INT UNSIGNED NOT NULL,"
+        "bid INT UNSIGNED NOT NULL,"
+        "duration TINYINT UNSIGNED NOT NULL,"
+        "end_time INT UNSIGNED NOT NULL,"
+        "bidder INT NOT NULL,"
+        "bids BLOB NOT NULL"
+    ") ENGINE=InnoDB");
+    if (error) print(mysql_error(mysql));
+
+    error = mysql_query(mysql,
+        "CREATE TABLE IF NOT EXISTS mail ("
+        "id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,"
+        "uid INT NOT NULL,"
+        "kind VARCHAR(24) NOT NULL,"
+        "item INT UNSIGNED NOT NULL,"
+        "world VARCHAR(24) NOT NULL,"
+        "amount INT NOT NULL,"
+        "expires INT UNSIGNED NOT NULL,"
+        "is_read TINYINT NOT NULL DEFAULT 0,"
+        "claimed TINYINT NOT NULL DEFAULT 0,"
+        "KEY (uid)"
+    ") ENGINE=InnoDB");
+    if (error) print(mysql_error(mysql));
 }
 
 bool mysql_gateway::column_found(const std::string &table, const std::string &column)
@@ -172,11 +204,11 @@ MYSQL_BIND make_bind_in(const std::string &buffer)
 }
 MYSQL_BIND make_bind_in(const std::vector<u_char> &buffer)
 {
-    return { .buffer = (void*)buffer.data(), .buffer_length = (u_long)buffer.size(), .buffer_type = MYSQL_TYPE_BLOB };
+    return { .buffer = buffer.empty() ? (void*)"" : (void*)buffer.data(), .buffer_length = (u_long)buffer.size(), .buffer_type = MYSQL_TYPE_BLOB };
 }
 MYSQL_BIND make_bind_in(const ::blob &buffer)
 {
-    return { .buffer = (void*)buffer.data().data(), .buffer_length = (u_long)buffer.size(), .buffer_type = MYSQL_TYPE_BLOB };
+    return make_bind_in(buffer.data());
 }
 
 MYSQL_BIND make_bind_out(signed &buffer)

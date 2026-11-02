@@ -90,7 +90,7 @@ public:
     template<typename T>
     T    mysql_select(const std::string &column, const std::string &arg = "", bool by_user_id = false); // @note by_user_id: WHERE uid instead of WHERE growid
     void mysql_select_all(bool by_user_id = false);
-    void mysql_update_all();
+    bool mysql_update_all();
 
     int user_id{}; // @note unqiue user id.
     std::string growid{""}, password{""};
@@ -135,6 +135,11 @@ public:
 
     long long gems{0};
     int wl_storage{0};
+    std::string auction_world{};
+    ::pos auction_pos{-1, -1};
+    u_short auction_item{};
+    u_int auction_price{};
+    u_char auction_duration{1};
     std::array<u_short, 2ull> level{ 1, 0 }; // {level, xp} XP formula credits: https://www.growtopiagame.com/forums/member/553046-kasete
     /*
     * @brief add XP safely, this function also handles level up.

@@ -2,10 +2,13 @@
 #include "tools/random.hpp"
 #include "tools/time.hpp"
 #include "onVariant/ConsoleMessage.hpp"
+#include "database/auction.hpp"
 
 #include "world.hpp"
 
 #include <algorithm>
+#include <string_view>
+#include <utility>
 
 char get_type(const ::item &item)
 {
@@ -28,6 +31,11 @@ void block::reset()
     this->fg = 0;
     this->bg = 0;
     for (u_char &s : this->state) s = 0;
+    this->auction_item = 0;
+    this->auction_end_time = 0;
+    this->auction_duration = 1;
+    this->auction_price = 0;
+    this->auction_state = 0;
 }
 
 ::blob block::to_blob() const
@@ -40,6 +48,32 @@ void block::reset()
     blob.u8(this->state[2]);
     blob.u8(this->state[3]);
 
+    return blob;
+}
+
+::blob auction_extra(const ::block &block)
+{
+    ::blob data{};
+    data.u8(0xa5); // @note cbor map
+    const std::pair<std::string_view, u_int> fields[]{
+        {"DurationHrs", block.auction_duration}, {"EndTime", block.auction_end_time},
+        {"Item", block.auction_item}, {"StartingPrice", block.auction_price}, {"State", block.auction_state}
+    };
+    for (const auto &[key, value] : fields)
+    {
+        data.u8(static_cast<u_char>(0x60 + key.size()));
+        for (char c : key) data.u8(c);
+        if (value < 24) data.u8(static_cast<u_char>(value));
+        else
+        {
+            const int bytes = value <= 0xff ? 1 : value <= 0xffff ? 2 : 4;
+            data.u8(bytes == 1 ? 0x18 : bytes == 2 ? 0x19 : 0x1a);
+            for (int i = bytes - 1; i >= 0; --i) data.u8(static_cast<u_char>(value >> (i * 8)));
+        }
+    }
+    ::blob blob{};
+    blob.u32(static_cast<u_int>(data.size()));
+    blob.push_back(data);
     return blob;
 }
 
@@ -107,6 +141,9 @@ void block::reset()
     {
         blob.push_back(block.to_blob());
 
+        if (block.fg == 15546/*Auction Block*/)
+            blob.push_back(auction_extra(block));
+        else
         if (block.fg != 0 || block.fg!=2||block.fg!=4||block.fg!=8||block.fg!=14) // @note so we can save time
         if (char type = get_type(id_to_item(block.fg)); type > '\x00')
         {
@@ -193,7 +230,7 @@ template void world::mysql_insert<std::string>(const std::string&, const std::st
 template void world::mysql_insert<::blob>(const std::string&, const ::blob&);
 
 template<typename T>
-void world::mysql_update(const std::string& column, const T& value)
+bool world::mysql_update(const std::string& column, const T& value)
 {
     ::hStmt hStmt{ std::format("UPDATE world SET {} = ? WHERE name = ?", column).c_str() };
 
@@ -203,12 +240,13 @@ void world::mysql_update(const std::string& column, const T& value)
     };
     hStmt.bind_param(params);
     hStmt.execute();
+    return mysql_stmt_errno(hStmt.pStmt) == 0;
 }
-template void world::mysql_update<signed>(const std::string&, const signed&);
-template void world::mysql_update<unsigned>(const std::string&, const unsigned&);
-template void world::mysql_update<float>(const std::string&, const float&);
-template void world::mysql_update<std::string>(const std::string&, const std::string&);
-template void world::mysql_update<::blob>(const std::string&, const ::blob&);
+template bool world::mysql_update<signed>(const std::string&, const signed&);
+template bool world::mysql_update<unsigned>(const std::string&, const unsigned&);
+template bool world::mysql_update<float>(const std::string&, const float&);
+template bool world::mysql_update<std::string>(const std::string&, const std::string&);
+template bool world::mysql_update<::blob>(const std::string&, const ::blob&);
 
 template<typename T>
 T world::mysql_select(const std::string &column, const std::string &arg)
@@ -305,6 +343,7 @@ void world::mysql_select_all()
             blob.read_u32(object.uid, pos);
         }
     } // @note delete blob, pos
+    restore_auctions(*this);
 }
 
 world::world(const std::string &name) : name(name)/*DEFAULT*/
@@ -321,7 +360,13 @@ world::world(const std::string &name) : name(name)/*DEFAULT*/
 }
 world::~world()
 {
-    this->mysql_update("owner", this->owner);
+    this->mysql_update_all();
+}
+
+bool world::mysql_update_all()
+{
+    if (this->name.empty()) return false;
+    if (!this->mysql_update("owner", this->owner)) return false;
     {
         ::blob blob;
 
@@ -361,7 +406,7 @@ world::~world()
             }
             ++i;
         }
-        this->mysql_update("blocks", blob);
+        if (!this->mysql_update("blocks", blob)) return false;
     }
     {
         ::blob blob{};
@@ -371,7 +416,7 @@ world::~world()
         {
             blob.push_back(object.to_blob());
         }
-        this->mysql_update("objects", blob.data());
+        return this->mysql_update("objects", blob);
     }
 }
 
@@ -493,12 +538,17 @@ void send_tile_update(ENetEvent &event, ::gamePacket gamePacket, ::block &block,
 {
     gamePacket.type = 05; // @note PACKET_SEND_TILE_UPDATE_DATA
     gamePacket.state = (int)gamePacketState::EXTENDED;
+    const ::blob extra = block.fg == 15546/*Auction Block*/ ? auction_extra(block) : ::blob{};
+    if (block.fg == 15546/*Auction Block*/ || block.fg == 15610/*Auction Block - Sold Out*/)
+        gamePacket.size = 8/*tile*/ + static_cast<u_int>(extra.size());
     ::blob blob = compress_state(gamePacket);
 
     blob.push_back(block.to_blob());
 
     const ::item &item = id_to_item(block.fg);
-    blob.u8(get_type(id_to_item(block.fg)));
+    if (block.fg == 15546/*Auction Block*/)
+        blob.push_back(extra);
+    else if (block.fg != 15610/*Auction Block - Sold Out*/) blob.u8(get_type(id_to_item(block.fg)));
     switch (item.type)
     {
         case type::DOOR:

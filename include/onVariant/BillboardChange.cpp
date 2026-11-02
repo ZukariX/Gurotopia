@@ -8,7 +8,7 @@ void on::BillboardChange(ENetEvent& event)
     
     send_varlist(event.peer, {
         "OnBillboardChange",
-        pPeer->netid,
+        static_cast<u_int>(pPeer->netid),
         signed{pPeer->billboard.id},
         std::format("{},{}", to_char(pPeer->billboard.show), to_char(pPeer->billboard.isBuying)),
         pPeer->billboard.price,

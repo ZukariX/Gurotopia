@@ -8,5 +8,6 @@ void action::worldlock_storage_getpage(ENetEvent& event, const std::string& head
 {
     ::peer *pPeer = static_cast<::peer*>(event.peer->data);
 
+    if (pPeer->user_id <= 0 || pPeer->wl_storage < 0) return;
     on::WorldLockStorageResponse(event.peer);
 }
